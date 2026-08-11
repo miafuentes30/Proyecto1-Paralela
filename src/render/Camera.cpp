@@ -2,8 +2,10 @@
 
 #include <cmath>
 
+#if defined(_WIN32)
 #include <windows.h>
-#include <gl/GL.h>
+#endif
+#include <GL/gl.h>
 
 namespace fruitcat {
 namespace {
