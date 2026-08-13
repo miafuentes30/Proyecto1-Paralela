@@ -76,18 +76,11 @@ void drawEdges(float halfWidth, float halfHeight, float halfDepth) {
 } // namespace
 
 void drawGlassArena(float halfWidth, float halfHeight, float halfDepth) {
-    // Edges are drawn opaque and depth-written first so they read as a crisp
-    // frame around the glass, matching the reference image.
-    glDisable(GL_LIGHTING);
-    glColor3f(0.55F, 0.85F, 0.95F);
-    glLineWidth(1.5F);
-    drawEdges(halfWidth, halfHeight, halfDepth);
-
     // Glass panels: lit so a moving specular highlight sells the material,
     // blended for transparency, and depth-write disabled so the far and near
     // panes stay visible through each other instead of occluding. Alpha is
     // kept low so the panels read as near-invisible glass, not tinted walls.
-    const float glassColor[4] = {0.55F, 0.75F, 0.85F, 0.07F};
+    const float glassColor[4] = {0.42F, 0.78F, 0.92F, 0.045F};
     const float specularColor[4] = {1.0F, 1.0F, 1.0F, 1.0F};
 
     glEnable(GL_LIGHTING);
@@ -112,6 +105,11 @@ void drawGlassArena(float halfWidth, float halfHeight, float halfDepth) {
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
     glDisable(GL_LIGHTING);
+
+    // Draw opaque cues last: they remain crisp over the transparent panels.
+    glColor3f(0.44F, 0.88F, 1.0F);
+    glLineWidth(2.0F);
+    drawEdges(halfWidth, halfHeight, halfDepth);
 }
 
 } // namespace fruitcat

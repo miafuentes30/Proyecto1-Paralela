@@ -13,7 +13,9 @@ add_executable(fruitcat-chaos
     src/main.cpp
     src/render/Arena.cpp
     src/render/Camera.cpp
+    src/render/DebugSphere.cpp
+    src/render/Terrain.cpp
 )
 
-target_include_directories(fruitcat-chaos PRIVATE include)
+target_include_directories(fruitcat-chaos PRIVATE include third_party)
 target_link_libraries(fruitcat-chaos PRIVATE glfw OpenGL::GL)
