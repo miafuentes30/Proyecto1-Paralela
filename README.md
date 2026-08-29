@@ -236,3 +236,4 @@ La primera versión funcional se enfocará en lo que permite demostrar correctam
 - Mediciones de desempeño y cálculo de speedup/eficiencia.
 
 Fuera del alcance inicial quedan modelos 3D complejos, física realista, sonido, redes, IA, menús de juego y efectos de iluminación avanzados. Se podrán agregar después solo si la simulación, la versión paralela y las mediciones ya están completas.
+cuantas 
