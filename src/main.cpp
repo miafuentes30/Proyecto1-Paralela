@@ -2,12 +2,14 @@
 
 #include <chrono>
 #include <cstdio>
-#include <cmath>
+#include <cstdlib>
+#include <string>
 
 #include "render/Arena.hpp"
 #include "render/Camera.hpp"
-#include "render/DebugSphere.hpp"
+#include "render/FruitCatRenderer.hpp"
 #include "render/Terrain.hpp"
+#include "simulation/Simulation.hpp"
 
 namespace {
 
@@ -19,6 +21,8 @@ constexpr float ARENA_HALF_WIDTH = 8.0F;
 constexpr float ARENA_HALF_HEIGHT = 5.0F;
 constexpr float ARENA_HALF_DEPTH = 8.0F;
 constexpr float FLOOR_HEIGHT = -ARENA_HALF_HEIGHT + 0.02F;
+constexpr int DEFAULT_CAT_COUNT = 40;
+constexpr int MAX_CAT_COUNT = 2000;
 
 void configureLighting() {
     const float ambientLight[4] = {0.24F, 0.32F, 0.42F, 1.0F};
@@ -56,9 +60,39 @@ void errorCallback(int error, const char* description) {
     std::fprintf(stderr, "GLFW error %d: %s\n", error, description);
 }
 
+bool parseCatCount(int argc, char** argv, int& catCount) {
+    if (argc == 1) {
+        catCount = DEFAULT_CAT_COUNT;
+        return true;
+    }
+    if (argc != 2) {
+        return false;
+    }
+
+    char* end = nullptr;
+    const long parsed = std::strtol(argv[1], &end, 10);
+    if (*argv[1] == '\0' || *end != '\0' || parsed < 1 || parsed > MAX_CAT_COUNT) {
+        return false;
+    }
+    catCount = static_cast<int>(parsed);
+    return true;
+}
+
+void updateWindowTitle(GLFWwindow* window, int totalCats, int activeCats, float fps) {
+    const std::string title = "FruitCat Chaos 3D | Sequential | N: " + std::to_string(totalCats)
+        + " | Active: " + std::to_string(activeCats) + " | FPS: " + std::to_string(static_cast<int>(fps + 0.5F));
+    glfwSetWindowTitle(window, title.c_str());
+}
+
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    int catCount = DEFAULT_CAT_COUNT;
+    if (!parseCatCount(argc, argv, catCount)) {
+        std::fprintf(stderr, "Uso: fruitcat-chaos [N]\nN debe estar entre 1 y %d.\n", MAX_CAT_COUNT);
+        return 1;
+    }
+
     glfwSetErrorCallback(errorCallback);
 
     if (!glfwInit()) {
@@ -79,12 +113,22 @@ int main() {
     configureLighting();
 
     fruitcat::Camera camera;
+    const fruitcat::ArenaBounds bounds{
+        -ARENA_HALF_WIDTH, ARENA_HALF_WIDTH,
+        FLOOR_HEIGHT, ARENA_HALF_HEIGHT,
+        -ARENA_HALF_DEPTH, ARENA_HALF_DEPTH
+    };
+    fruitcat::Simulation simulation(catCount, bounds);
     auto previousFrameTime = std::chrono::steady_clock::now();
+    float fpsAccumulator = 0.0F;
+    int framesSinceTitleUpdate = 0;
 
     while (!glfwWindowShouldClose(window)) {
         const auto currentFrameTime = std::chrono::steady_clock::now();
         const std::chrono::duration<float> elapsedTime = currentFrameTime - previousFrameTime;
         previousFrameTime = currentFrameTime;
+        fpsAccumulator += elapsedTime.count();
+        ++framesSinceTitleUpdate;
 
         glfwPollEvents();
 
@@ -95,16 +139,22 @@ int main() {
         camera.update(elapsedTime.count());
         camera.apply(framebufferWidth, framebufferHeight);
         updatePointLightInWorld();
+        simulation.update(elapsedTime.count());
 
         glClearColor(0.0F, 0.0F, 0.0F, 1.0F);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         // Match the arena's full floor dimensions; the tiny height offset only
         // prevents depth conflicts with the transparent glass bottom panel.
         fruitcat::drawTerrain(ARENA_HALF_WIDTH, ARENA_HALF_DEPTH, FLOOR_HEIGHT);
-        const std::chrono::duration<float> totalTime = currentFrameTime.time_since_epoch();
-        fruitcat::drawDebugSphere(totalTime.count(), FLOOR_HEIGHT);
+        fruitcat::drawFruitCats(simulation.cats(), FLOOR_HEIGHT);
         fruitcat::drawGlassArena(ARENA_HALF_WIDTH, ARENA_HALF_HEIGHT, ARENA_HALF_DEPTH);
         glfwSwapBuffers(window);
+
+        if (fpsAccumulator >= 0.5F) {
+            updateWindowTitle(window, simulation.totalCats(), simulation.activeCats(), framesSinceTitleUpdate / fpsAccumulator);
+            fpsAccumulator = 0.0F;
+            framesSinceTitleUpdate = 0;
+        }
     }
 
     glfwDestroyWindow(window);

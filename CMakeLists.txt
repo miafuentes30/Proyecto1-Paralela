@@ -13,8 +13,9 @@ add_executable(fruitcat-chaos
     src/main.cpp
     src/render/Arena.cpp
     src/render/Camera.cpp
-    src/render/DebugSphere.cpp
+    src/render/FruitCatRenderer.cpp
     src/render/Terrain.cpp
+    src/simulation/Simulation.cpp
 )
 
 target_include_directories(fruitcat-chaos PRIVATE include third_party)
