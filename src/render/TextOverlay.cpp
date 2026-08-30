@@ -1,0 +1,149 @@
+#include "render/TextOverlay.hpp"
+
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+#include <GL/gl.h>
+
+namespace fruitcat {
+namespace {
+
+constexpr int GLYPH_WIDTH = 5;
+constexpr int GLYPH_HEIGHT = 7;
+constexpr int GLYPH_ADVANCE = GLYPH_WIDTH + 1;
+constexpr int GLYPH_COUNT = 41;
+
+// Each glyph is seven rows of five pixels; bit 4 of a row is its left edge.
+// Digits first, then A-Z, then the punctuation the HUD needs.
+constexpr unsigned char FONT[GLYPH_COUNT][GLYPH_HEIGHT] = {
+    {0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E}, // 0
+    {0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E}, // 1
+    {0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F}, // 2
+    {0x1F, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0E}, // 3
+    {0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02}, // 4
+    {0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E}, // 5
+    {0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E}, // 6
+    {0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08}, // 7
+    {0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E}, // 8
+    {0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C}, // 9
+    {0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11}, // A
+    {0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E}, // B
+    {0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E}, // C
+    {0x1C, 0x12, 0x11, 0x11, 0x11, 0x12, 0x1C}, // D
+    {0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F}, // E
+    {0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10}, // F
+    {0x0E, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0F}, // G
+    {0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11}, // H
+    {0x0E, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E}, // I
+    {0x07, 0x02, 0x02, 0x02, 0x02, 0x12, 0x0C}, // J
+    {0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11}, // K
+    {0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F}, // L
+    {0x11, 0x1B, 0x15, 0x15, 0x11, 0x11, 0x11}, // M
+    {0x11, 0x19, 0x15, 0x15, 0x13, 0x11, 0x11}, // N
+    {0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E}, // O
+    {0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10}, // P
+    {0x0E, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0D}, // Q
+    {0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11}, // R
+    {0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E}, // S
+    {0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04}, // T
+    {0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E}, // U
+    {0x11, 0x11, 0x11, 0x11, 0x11, 0x0A, 0x04}, // V
+    {0x11, 0x11, 0x11, 0x15, 0x15, 0x1B, 0x11}, // W
+    {0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11}, // X
+    {0x11, 0x11, 0x0A, 0x04, 0x04, 0x04, 0x04}, // Y
+    {0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F}, // Z
+    {0x00, 0x04, 0x04, 0x00, 0x04, 0x04, 0x00}, // :
+    {0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04}, // |
+    {0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x04}, // .
+    {0x01, 0x01, 0x02, 0x04, 0x08, 0x10, 0x10}, // /
+    {0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00}  // -
+};
+
+// Returns -1 for a space or anything the font does not carry, which the
+// caller renders as a blank advance.
+int glyphIndex(char character) {
+    if (character >= '0' && character <= '9') {
+        return character - '0';
+    }
+    if (character >= 'A' && character <= 'Z') {
+        return 10 + (character - 'A');
+    }
+    if (character >= 'a' && character <= 'z') {
+        return 10 + (character - 'a');
+    }
+    switch (character) {
+        case ':': return 36;
+        case '|': return 37;
+        case '.': return 38;
+        case '/': return 39;
+        case '-': return 40;
+        default: return -1;
+    }
+}
+
+// Emits every lit font pixel as its own quad. A HUD line is a few hundred
+// quads, so batching them into one glBegin keeps this far below the cost of
+// a single cat sprite batch.
+void emitText(float x, float y, float pixelSize, const char* text) {
+    glBegin(GL_QUADS);
+    float penX = x;
+    for (const char* cursor = text; *cursor != '\0'; ++cursor) {
+        const int index = glyphIndex(*cursor);
+        if (index >= 0) {
+            for (int row = 0; row < GLYPH_HEIGHT; ++row) {
+                const unsigned char bits = FONT[index][row];
+                for (int column = 0; column < GLYPH_WIDTH; ++column) {
+                    if ((bits & (1U << (GLYPH_WIDTH - 1 - column))) == 0U) {
+                        continue;
+                    }
+                    const float left = penX + static_cast<float>(column) * pixelSize;
+                    const float top = y + static_cast<float>(row) * pixelSize;
+                    glVertex2f(left, top);
+                    glVertex2f(left, top + pixelSize);
+                    glVertex2f(left + pixelSize, top + pixelSize);
+                    glVertex2f(left + pixelSize, top);
+                }
+            }
+        }
+        penX += static_cast<float>(GLYPH_ADVANCE) * pixelSize;
+    }
+    glEnd();
+}
+
+} // namespace
+
+void drawScreenText(int framebufferWidth, int framebufferHeight,
+                    float x, float y, float pixelSize, const char* text) {
+    if (framebufferWidth <= 0 || framebufferHeight <= 0 || text == nullptr) {
+        return;
+    }
+
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    glLoadIdentity();
+    // Top-left origin with y growing downwards, which is how the caller
+    // thinks about screen positions.
+    glOrtho(0.0, framebufferWidth, framebufferHeight, 0.0, -1.0, 1.0);
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    glLoadIdentity();
+
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_TEXTURE_2D);
+
+    // The scene has both a black void and bright grass behind it, so the text
+    // gets a hard drop shadow to stay readable over either one.
+    glColor3f(0.0F, 0.0F, 0.0F);
+    emitText(x + pixelSize, y + pixelSize, pixelSize, text);
+    glColor3f(1.0F, 1.0F, 1.0F);
+    emitText(x, y, pixelSize, text);
+
+    glEnable(GL_DEPTH_TEST);
+    glPopMatrix();
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);
+}
+
+} // namespace fruitcat

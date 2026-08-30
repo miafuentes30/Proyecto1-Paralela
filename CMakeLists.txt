@@ -14,7 +14,9 @@ add_executable(fruitcat-chaos
     src/render/Arena.cpp
     src/render/Camera.cpp
     src/render/FruitCatRenderer.cpp
+    src/render/SpriteLibrary.cpp
     src/render/Terrain.cpp
+    src/render/TextOverlay.cpp
     src/simulation/Simulation.cpp
 )
 

@@ -1,5 +1,7 @@
 #include "render/FruitCatRenderer.hpp"
 
+#include "render/SpriteLibrary.hpp"
+
 #include <algorithm>
 #include <cmath>
 
@@ -13,126 +15,168 @@ namespace {
 
 constexpr float PI = 3.14159265358979323846F;
 constexpr int MAX_IMPACTS = 7;
+// The sprite canvas is square and its artwork does not fill the whole frame,
+// so the quad is drawn wider than the collision sphere to make the cat read
+// at roughly the size the physics radius suggests.
+constexpr float CAT_SPRITE_SCALE = 2.1F;
+constexpr float EXPLOSION_START_SCALE = 2.0F;
+constexpr float EXPLOSION_END_SCALE = 4.6F;
+constexpr float EXPLOSION_SECONDS = 0.50F;
 
-void drawShadowEllipse(float x, float z, float radius, float alpha) {
-    glColor4f(0.0F, 0.0F, 0.0F, alpha);
-    glBegin(GL_TRIANGLE_FAN);
-    glVertex3f(x, 0.0F, z);
-    constexpr int segments = 20;
-    for (int index = 0; index <= segments; ++index) {
-        const float angle = 2.0F * PI * static_cast<float>(index) / static_cast<float>(segments);
-        glVertex3f(x + std::cos(angle) * radius, 0.0F, z + std::sin(angle) * radius * 0.55F);
+struct Basis {
+    Vec3 right;
+    Vec3 up;
+};
+
+// The camera's world-space axes are the rows of the modelview rotation block,
+// which is exactly what a screen-aligned billboard needs. Reading the matrix
+// once per frame keeps this off the per-cat path.
+Basis cameraBasis() {
+    float modelview[16] = {};
+    glGetFloatv(GL_MODELVIEW_MATRIX, modelview);
+    return Basis{
+        {modelview[0], modelview[4], modelview[8]},
+        {modelview[1], modelview[5], modelview[9]}
+    };
+}
+
+// Emits one quad centred on the sprite's position. Must be called between
+// glBegin(GL_QUADS) and glEnd() so a whole batch travels as a single block.
+void emitBillboard(const Vec3& center, float halfSize, const Basis& basis) {
+    const Vec3 right{basis.right.x * halfSize, basis.right.y * halfSize, basis.right.z * halfSize};
+    const Vec3 up{basis.up.x * halfSize, basis.up.y * halfSize, basis.up.z * halfSize};
+
+    glTexCoord2f(0.0F, 0.0F);
+    glVertex3f(center.x - right.x + up.x, center.y - right.y + up.y, center.z - right.z + up.z);
+    glTexCoord2f(0.0F, 1.0F);
+    glVertex3f(center.x - right.x - up.x, center.y - right.y - up.y, center.z - right.z - up.z);
+    glTexCoord2f(1.0F, 1.0F);
+    glVertex3f(center.x + right.x - up.x, center.y + right.y - up.y, center.z + right.z - up.z);
+    glTexCoord2f(1.0F, 0.0F);
+    glVertex3f(center.x + right.x + up.x, center.y + right.y + up.y, center.z + right.z + up.z);
+}
+
+// Damage darkens the sprite towards red. The texture is modulated by this
+// colour, so the artwork keeps its shading while the cat visibly heats up.
+void damageTint(const FruitCat& cat, float& red, float& green, float& blue) {
+    const float damage = std::min(1.0F, static_cast<float>(cat.impacts) / static_cast<float>(MAX_IMPACTS));
+    red = 1.0F;
+    green = 1.0F - damage * 0.55F;
+    blue = 1.0F - damage * 0.70F;
+}
+
+void drawShadows(const std::vector<FruitCat>& cats, float floorHeight) {
+    glDisable(GL_LIGHTING);
+    glDisable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);
+    glColor4f(0.0F, 0.0F, 0.0F, 0.22F);
+
+    const float shadowHeight = floorHeight + 0.025F;
+    for (const FruitCat& cat : cats) {
+        if (cat.state != CatState::Alive) {
+            continue;
+        }
+
+        const float heightOverFloor = std::max(0.0F, cat.position.y - floorHeight - cat.radius);
+        const float centerX = cat.position.x + heightOverFloor * 0.42F;
+        const float centerZ = cat.position.z - heightOverFloor * 0.30F;
+        const float radius = cat.radius * (1.15F + heightOverFloor * 0.22F);
+
+        glBegin(GL_TRIANGLE_FAN);
+        glVertex3f(centerX, shadowHeight, centerZ);
+        constexpr int segments = 16;
+        for (int index = 0; index <= segments; ++index) {
+            const float angle = 2.0F * PI * static_cast<float>(index) / static_cast<float>(segments);
+            glVertex3f(centerX + std::cos(angle) * radius, shadowHeight, centerZ + std::sin(angle) * radius * 0.55F);
+        }
+        glEnd();
+    }
+
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+}
+
+// Alive cats are drawn opaque with an alpha test rather than with blending:
+// the artwork has hard edges, so discarding transparent texels lets the depth
+// buffer sort the whole flock correctly without sorting it on the CPU.
+void drawAliveCats(const std::vector<FruitCat>& cats, const Basis& basis, FruitType fruitType) {
+    const unsigned int texture = spriteTexture(catSprite(fruitType));
+    if (texture == 0) {
+        return;
+    }
+
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glBegin(GL_QUADS);
+    for (const FruitCat& cat : cats) {
+        if (cat.state != CatState::Alive || cat.fruitType != fruitType) {
+            continue;
+        }
+        float red = 1.0F;
+        float green = 1.0F;
+        float blue = 1.0F;
+        damageTint(cat, red, green, blue);
+        glColor4f(red, green, blue, 1.0F);
+        emitBillboard(cat.position, cat.radius * CAT_SPRITE_SCALE, basis);
     }
     glEnd();
 }
 
-void drawSphere(float radius) {
-    constexpr int latitudeBands = 10;
-    constexpr int longitudeBands = 14;
-    for (int latitude = 0; latitude < latitudeBands; ++latitude) {
-        const float phi0 = PI * static_cast<float>(latitude) / static_cast<float>(latitudeBands);
-        const float phi1 = PI * static_cast<float>(latitude + 1) / static_cast<float>(latitudeBands);
-        glBegin(GL_QUAD_STRIP);
-        for (int longitude = 0; longitude <= longitudeBands; ++longitude) {
-            const float theta = 2.0F * PI * static_cast<float>(longitude) / static_cast<float>(longitudeBands);
-            const float sinTheta = std::sin(theta);
-            const float cosTheta = std::cos(theta);
-            for (const float phi : {phi0, phi1}) {
-                const float x = std::sin(phi) * cosTheta;
-                const float y = std::cos(phi);
-                const float z = std::sin(phi) * sinTheta;
-                glNormal3f(x, y, z);
-                glVertex3f(radius * x, radius * y, radius * z);
-            }
+// Explosions expand and fade, so they need real blending and must come after
+// every opaque cat with depth writes disabled.
+void drawExplosions(const std::vector<FruitCat>& cats, const Basis& basis, FruitType fruitType) {
+    const unsigned int texture = spriteTexture(explosionSprite(fruitType));
+    if (texture == 0) {
+        return;
+    }
+
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glBegin(GL_QUADS);
+    for (const FruitCat& cat : cats) {
+        if (cat.state != CatState::Exploding || cat.fruitType != fruitType) {
+            continue;
         }
-        glEnd();
+        const float progress = std::clamp(1.0F - cat.stateTimer / EXPLOSION_SECONDS, 0.0F, 1.0F);
+        const float scale = EXPLOSION_START_SCALE + (EXPLOSION_END_SCALE - EXPLOSION_START_SCALE) * progress;
+        // Hold full brightness for the first instants, then fade out.
+        const float fade = std::clamp(1.0F - (progress - 0.25F) / 0.75F, 0.0F, 1.0F);
+        glColor4f(1.0F, 1.0F, 1.0F, fade);
+        emitBillboard(cat.position, cat.radius * scale, basis);
     }
-}
-
-void baseColor(const FruitCat& cat, float& red, float& green, float& blue) {
-    if (cat.fruitType == FruitType::Banana) {
-        red = 1.0F;
-        green = 0.78F;
-        blue = 0.06F;
-    } else {
-        red = 0.26F;
-        green = 0.82F;
-        blue = 0.22F;
-    }
-
-    const float damage = std::min(1.0F, static_cast<float>(cat.impacts) / static_cast<float>(MAX_IMPACTS));
-    red = red * (1.0F - damage * 0.45F) + damage * 0.95F;
-    green *= 1.0F - damage * 0.60F;
-    blue *= 1.0F - damage * 0.55F;
-}
-
-void drawExplosion(const FruitCat& cat) {
-    const float progress = std::clamp(1.0F - cat.stateTimer / 0.50F, 0.0F, 1.0F);
-    float red = 1.0F;
-    float green = cat.fruitType == FruitType::Banana ? 0.62F : 0.92F;
-    float blue = cat.fruitType == FruitType::Banana ? 0.08F : 0.16F;
-
-    glDisable(GL_LIGHTING);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glDepthMask(GL_FALSE);
-    glColor4f(red, green, blue, 0.78F * (1.0F - progress));
-    glPushMatrix();
-    glTranslatef(cat.position.x, cat.position.y, cat.position.z);
-    drawSphere(cat.radius * (1.0F + progress * 2.2F));
-    glPopMatrix();
-    glDepthMask(GL_TRUE);
-    glDisable(GL_BLEND);
+    glEnd();
 }
 
 } // namespace
 
 void drawFruitCats(const std::vector<FruitCat>& cats, float floorHeight) {
-    for (const FruitCat& cat : cats) {
-        if (cat.state == CatState::Respawning) {
-            continue;
-        }
-        if (cat.state == CatState::Exploding) {
-            drawExplosion(cat);
-            continue;
-        }
+    const Basis basis = cameraBasis();
 
-        const float heightOverFloor = std::max(0.0F, cat.position.y - floorHeight - cat.radius);
-        glPushMatrix();
-        glTranslatef(0.0F, floorHeight + 0.025F, 0.0F);
-        glDisable(GL_LIGHTING);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glDepthMask(GL_FALSE);
-        drawShadowEllipse(
-            cat.position.x + heightOverFloor * 0.42F,
-            cat.position.z - heightOverFloor * 0.30F,
-            cat.radius * (1.15F + heightOverFloor * 0.22F),
-            0.22F
-        );
-        glDepthMask(GL_TRUE);
-        glDisable(GL_BLEND);
-        glPopMatrix();
+    drawShadows(cats, floorHeight);
 
-        float red = 0.0F;
-        float green = 0.0F;
-        float blue = 0.0F;
-        baseColor(cat, red, green, blue);
-        const float diffuse[4] = {red, green, blue, 1.0F};
-        const float ambient[4] = {red * 0.34F, green * 0.34F, blue * 0.34F, 1.0F};
-        const float specular[4] = {1.0F, 0.92F, 0.70F, 1.0F};
+    glDisable(GL_LIGHTING);
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 
-        glEnable(GL_LIGHTING);
-        glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, ambient);
-        glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, diffuse);
-        glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, specular);
-        glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 38.0F);
-        glPushMatrix();
-        glTranslatef(cat.position.x, cat.position.y, cat.position.z);
-        drawSphere(cat.radius);
-        glPopMatrix();
-        glDisable(GL_LIGHTING);
-    }
+    glEnable(GL_ALPHA_TEST);
+    // Below one half the mip chain has already blurred the silhouette away;
+    // this threshold keeps distant cats from thinning out.
+    glAlphaFunc(GL_GREATER, 0.40F);
+    drawAliveCats(cats, basis, FruitType::Banana);
+    drawAliveCats(cats, basis, FruitType::Avocado);
+
+    glAlphaFunc(GL_GREATER, 0.02F);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);
+    drawExplosions(cats, basis, FruitType::Banana);
+    drawExplosions(cats, basis, FruitType::Avocado);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glDisable(GL_ALPHA_TEST);
+
+    glDisable(GL_TEXTURE_2D);
+    glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
 }
 
 } // namespace fruitcat

@@ -1,6 +1,8 @@
 #include <GLFW/glfw3.h>
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -9,6 +11,7 @@
 #include "render/Camera.hpp"
 #include "render/FruitCatRenderer.hpp"
 #include "render/Terrain.hpp"
+#include "render/TextOverlay.hpp"
 #include "simulation/Simulation.hpp"
 
 namespace {
@@ -78,6 +81,16 @@ bool parseCatCount(int argc, char** argv, int& catCount) {
     return true;
 }
 
+void drawHud(int framebufferWidth, int framebufferHeight, int totalCats, int activeCats, float fps) {
+    char line[96];
+    std::snprintf(line, sizeof(line), "SEQUENTIAL | N %d | ACTIVE %d | FPS %.1f", totalCats, activeCats, fps);
+    // Scale with the framebuffer so the HUD reads the same on a high-DPI or
+    // fractionally scaled display, but keep it a whole number of pixels so the
+    // bitmap font stays aligned to the pixel grid and looks crisp.
+    const float pixelSize = std::max(2.0F, std::floor(static_cast<float>(framebufferHeight) / 300.0F));
+    fruitcat::drawScreenText(framebufferWidth, framebufferHeight, pixelSize * 4.0F, pixelSize * 4.0F, pixelSize, line);
+}
+
 void updateWindowTitle(GLFWwindow* window, int totalCats, int activeCats, float fps) {
     const std::string title = "FruitCat Chaos 3D | Sequential | N: " + std::to_string(totalCats)
         + " | Active: " + std::to_string(activeCats) + " | FPS: " + std::to_string(static_cast<int>(fps + 0.5F));
@@ -122,6 +135,7 @@ int main(int argc, char** argv) {
     auto previousFrameTime = std::chrono::steady_clock::now();
     float fpsAccumulator = 0.0F;
     int framesSinceTitleUpdate = 0;
+    float measuredFps = 0.0F;
 
     while (!glfwWindowShouldClose(window)) {
         const auto currentFrameTime = std::chrono::steady_clock::now();
@@ -148,10 +162,12 @@ int main(int argc, char** argv) {
         fruitcat::drawTerrain(ARENA_HALF_WIDTH, ARENA_HALF_DEPTH, FLOOR_HEIGHT);
         fruitcat::drawFruitCats(simulation.cats(), FLOOR_HEIGHT);
         fruitcat::drawGlassArena(ARENA_HALF_WIDTH, ARENA_HALF_HEIGHT, ARENA_HALF_DEPTH);
+        drawHud(framebufferWidth, framebufferHeight, simulation.totalCats(), simulation.activeCats(), measuredFps);
         glfwSwapBuffers(window);
 
         if (fpsAccumulator >= 0.5F) {
-            updateWindowTitle(window, simulation.totalCats(), simulation.activeCats(), framesSinceTitleUpdate / fpsAccumulator);
+            measuredFps = static_cast<float>(framesSinceTitleUpdate) / fpsAccumulator;
+            updateWindowTitle(window, simulation.totalCats(), simulation.activeCats(), measuredFps);
             fpsAccumulator = 0.0F;
             framesSinceTitleUpdate = 0;
         }
