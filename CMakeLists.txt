@@ -12,6 +12,7 @@ find_package(OpenGL REQUIRED)
 add_executable(fruitcat-chaos
     src/main.cpp
     src/render/Arena.cpp
+    src/render/Backdrop.cpp
     src/render/Camera.cpp
     src/render/FruitCatRenderer.cpp
     src/render/SpriteLibrary.cpp

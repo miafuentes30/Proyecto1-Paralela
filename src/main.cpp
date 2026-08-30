@@ -8,6 +8,7 @@
 #include <string>
 
 #include "render/Arena.hpp"
+#include "render/Backdrop.hpp"
 #include "render/Camera.hpp"
 #include "render/FruitCatRenderer.hpp"
 #include "render/Terrain.hpp"
@@ -53,9 +54,16 @@ void updatePointLightInWorld() {
     glLightfv(GL_LIGHT0, GL_POSITION, lightPosition);
 }
 
+void toggleFullscreen(GLFWwindow* window);
+
 void keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action, int /*mods*/) {
-    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+    if (action != GLFW_PRESS) {
+        return;
+    }
+    if (key == GLFW_KEY_ESCAPE) {
         glfwSetWindowShouldClose(window, GLFW_TRUE);
+    } else if (key == GLFW_KEY_F11 || key == GLFW_KEY_F) {
+        toggleFullscreen(window);
     }
 }
 
@@ -63,22 +71,64 @@ void errorCallback(int error, const char* description) {
     std::fprintf(stderr, "GLFW error %d: %s\n", error, description);
 }
 
-bool parseCatCount(int argc, char** argv, int& catCount) {
-    if (argc == 1) {
-        catCount = DEFAULT_CAT_COUNT;
-        return true;
+struct Options {
+    int catCount = DEFAULT_CAT_COUNT;
+    bool fullscreen = false;
+};
+
+bool parseArguments(int argc, char** argv, Options& options) {
+    bool sawCatCount = false;
+    for (int index = 1; index < argc; ++index) {
+        const std::string argument = argv[index];
+        if (argument == "-f" || argument == "--fullscreen") {
+            options.fullscreen = true;
+            continue;
+        }
+        if (sawCatCount) {
+            return false;
+        }
+
+        char* end = nullptr;
+        const long parsed = std::strtol(argument.c_str(), &end, 10);
+        if (argument.empty() || *end != '\0' || parsed < 1 || parsed > MAX_CAT_COUNT) {
+            return false;
+        }
+        options.catCount = static_cast<int>(parsed);
+        sawCatCount = true;
     }
-    if (argc != 2) {
-        return false;
+    return true;
+}
+
+struct WindowState {
+    bool fullscreen = false;
+    int windowedWidth = WINDOW_WIDTH;
+    int windowedHeight = WINDOW_HEIGHT;
+};
+
+void toggleFullscreen(GLFWwindow* window) {
+    auto* state = static_cast<WindowState*>(glfwGetWindowUserPointer(window));
+    if (state == nullptr) {
+        return;
     }
 
-    char* end = nullptr;
-    const long parsed = std::strtol(argv[1], &end, 10);
-    if (*argv[1] == '\0' || *end != '\0' || parsed < 1 || parsed > MAX_CAT_COUNT) {
-        return false;
+    if (state->fullscreen) {
+        // GLFW wants a position here, but Wayland ignores it and cannot report
+        // the real one, so a fixed corner avoids a spurious error there without
+        // changing anything on X11 or Windows.
+        glfwSetWindowMonitor(window, nullptr, 100, 100,
+                             state->windowedWidth, state->windowedHeight, GLFW_DONT_CARE);
+        state->fullscreen = false;
+        return;
     }
-    catCount = static_cast<int>(parsed);
-    return true;
+
+    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode* mode = monitor != nullptr ? glfwGetVideoMode(monitor) : nullptr;
+    if (mode == nullptr) {
+        return;
+    }
+    glfwGetWindowSize(window, &state->windowedWidth, &state->windowedHeight);
+    glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+    state->fullscreen = true;
 }
 
 void drawHud(int framebufferWidth, int framebufferHeight, int totalCats, int activeCats, float fps) {
@@ -100,9 +150,13 @@ void updateWindowTitle(GLFWwindow* window, int totalCats, int activeCats, float 
 } // namespace
 
 int main(int argc, char** argv) {
-    int catCount = DEFAULT_CAT_COUNT;
-    if (!parseCatCount(argc, argv, catCount)) {
-        std::fprintf(stderr, "Uso: fruitcat-chaos [N]\nN debe estar entre 1 y %d.\n", MAX_CAT_COUNT);
+    Options options;
+    if (!parseArguments(argc, argv, options)) {
+        std::fprintf(stderr,
+                     "Uso: fruitcat-chaos [N] [-f|--fullscreen]\n"
+                     "N debe estar entre 1 y %d (default %d).\n"
+                     "F o F11 alternan pantalla completa mientras corre.\n",
+                     MAX_CAT_COUNT, DEFAULT_CAT_COUNT);
         return 1;
     }
 
@@ -112,12 +166,28 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    GLFWwindow* window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE, nullptr, nullptr);
+    GLFWmonitor* startMonitor = nullptr;
+    int createWidth = WINDOW_WIDTH;
+    int createHeight = WINDOW_HEIGHT;
+    if (options.fullscreen) {
+        startMonitor = glfwGetPrimaryMonitor();
+        const GLFWvidmode* mode = startMonitor != nullptr ? glfwGetVideoMode(startMonitor) : nullptr;
+        if (mode != nullptr) {
+            createWidth = mode->width;
+            createHeight = mode->height;
+        } else {
+            startMonitor = nullptr;
+        }
+    }
+
+    GLFWwindow* window = glfwCreateWindow(createWidth, createHeight, WINDOW_TITLE, startMonitor, nullptr);
     if (window == nullptr) {
         glfwTerminate();
         return 1;
     }
 
+    WindowState windowState{startMonitor != nullptr, WINDOW_WIDTH, WINDOW_HEIGHT};
+    glfwSetWindowUserPointer(window, &windowState);
     glfwSetKeyCallback(window, keyCallback);
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
@@ -132,7 +202,7 @@ int main(int argc, char** argv) {
         FLOOR_HEIGHT, ARENA_HALF_HEIGHT,
         -ARENA_HALF_DEPTH, ARENA_HALF_DEPTH
     };
-    fruitcat::Simulation simulation(catCount, bounds);
+    fruitcat::Simulation simulation(options.catCount, bounds);
     auto previousFrameTime = std::chrono::steady_clock::now();
     float fpsAccumulator = 0.0F;
     int framesSinceTitleUpdate = 0;
@@ -158,6 +228,8 @@ int main(int argc, char** argv) {
 
         glClearColor(0.0F, 0.0F, 0.0F, 1.0F);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        fruitcat::drawSkyGradient();
+        fruitcat::drawStarfield();
         // Match the arena's full floor dimensions; the tiny height offset only
         // prevents depth conflicts with the transparent glass bottom panel.
         fruitcat::drawTerrain(ARENA_HALF_WIDTH, ARENA_HALF_DEPTH, FLOOR_HEIGHT);
