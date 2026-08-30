@@ -21,7 +21,7 @@ constexpr int WINDOW_WIDTH = 1280;
 constexpr int WINDOW_HEIGHT = 720;
 
 constexpr float ARENA_HALF_WIDTH = 8.0F;
-constexpr float ARENA_HALF_HEIGHT = 5.0F;
+constexpr float ARENA_HALF_HEIGHT = 7.0F;
 constexpr float ARENA_HALF_DEPTH = 8.0F;
 constexpr float FLOOR_HEIGHT = -ARENA_HALF_HEIGHT + 0.02F;
 constexpr int DEFAULT_CAT_COUNT = 40;
@@ -126,6 +126,7 @@ int main(int argc, char** argv) {
     configureLighting();
 
     fruitcat::Camera camera;
+    camera.setSubject(ARENA_HALF_WIDTH, ARENA_HALF_HEIGHT, ARENA_HALF_DEPTH);
     const fruitcat::ArenaBounds bounds{
         -ARENA_HALF_WIDTH, ARENA_HALF_WIDTH,
         FLOOR_HEIGHT, ARENA_HALF_HEIGHT,
