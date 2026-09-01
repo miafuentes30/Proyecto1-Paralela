@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 namespace fruitcat {
 
 struct Vec3 {
@@ -21,6 +23,9 @@ enum class CatState {
 
 struct FruitCat {
     int id = 0;
+    // Cada gato avanza su propia secuencia para evitar compartir estado
+    // mutable cuando la actualizacion se paralelice en el futuro.
+    std::uint32_t randomState = 0U;
     FruitType fruitType = FruitType::Banana;
     CatState state = CatState::Alive;
 

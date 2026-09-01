@@ -35,7 +35,15 @@ private:
 
     ArenaBounds bounds_;
     std::vector<FruitCat> cats_;
-    std::uint32_t randomState_;
+    /*
+     * VERSION ANTERIOR:
+     * Este miembro almacenaba un unico estado pseudoaleatorio compartido.
+     * Se reemplazo por FruitCat::randomState para que cada gato modifique su
+     * propio estado y no se produzca una condicion de carrera en paralelo.
+     *
+     * Codigo anterior:
+     * std::uint32_t randomState_;
+     */
 };
 
 } // namespace fruitcat

@@ -13,6 +13,18 @@ constexpr float RESPAWN_SECONDS = 0.75F;
 constexpr float MIN_SPEED = 1.25F;
 constexpr float MAX_SPEED = 2.80F;
 
+std::uint32_t makeCatSeed(std::uint32_t baseSeed, std::uint32_t catId) {
+    // Esta mezcla determinista conserva la reproducibilidad y asigna una
+    // secuencia independiente a cada gato a partir de la semilla base.
+    std::uint32_t value = baseSeed + 0x9E3779B9U * (catId + 1U);
+    value ^= value >> 16U;
+    value *= 0x85EBCA6BU;
+    value ^= value >> 13U;
+    value *= 0xC2B2AE35U;
+    value ^= value >> 16U;
+    return value;
+}
+
 float lengthSquared(const Vec3& vector) {
     return vector.x * vector.x + vector.y * vector.y + vector.z * vector.z;
 }
@@ -28,13 +40,35 @@ float randomRange(std::uint32_t& state, float minimum, float maximum) {
 
 } // namespace
 
+/*
+ * VERSION ANTERIOR:
+ * Este inicializador conservaba un unico estado pseudoaleatorio compartido.
+ * Se reemplazo porque produciria una condicion de carrera al actualizar
+ * distintos gatos en paralelo.
+ *
+ * Codigo anterior:
+ * Simulation::Simulation(int catCount, ArenaBounds bounds, std::uint32_t seed)
+ *     : bounds_(bounds), randomState_(seed)
+ */
 Simulation::Simulation(int catCount, ArenaBounds bounds, std::uint32_t seed)
-    : bounds_(bounds), randomState_(seed) {
+    : bounds_(bounds) {
     cats_.resize(static_cast<std::size_t>(catCount));
     for (int index = 0; index < catCount; ++index) {
         FruitCat& cat = cats_[static_cast<std::size_t>(index)];
         cat.id = index;
-        cat.fruitType = nextRandomUnit(randomState_) < 0.5F ? FruitType::Banana : FruitType::Avocado;
+        /*
+         * VERSION ANTERIOR:
+         * Este bloque seleccionaba el tipo mediante el estado compartido.
+         * Se reemplazo porque produciria una condicion de carrera al crear
+         * o actualizar distintos gatos en paralelo.
+         *
+         * Codigo anterior:
+         * cat.fruitType = nextRandomUnit(randomState_) < 0.5F
+         *     ? FruitType::Banana
+         *     : FruitType::Avocado;
+         */
+        cat.randomState = makeCatSeed(seed, static_cast<std::uint32_t>(index));
+        cat.fruitType = nextRandomUnit(cat.randomState) < 0.5F ? FruitType::Banana : FruitType::Avocado;
         spawn(cat);
     }
 }
@@ -68,17 +102,37 @@ void Simulation::spawn(FruitCat& cat) {
     cat.stateTimer = 0.0F;
 
     const float padding = cat.radius + 0.15F;
+    /*
+     * VERSION ANTERIOR:
+     * Este bloque utilizaba un unico estado pseudoaleatorio compartido.
+     * Se reemplazo porque produciria una condicion de carrera al actualizar
+     * distintos gatos en paralelo.
+     *
+     * Codigo anterior:
+     * cat.position = {
+     *     randomRange(randomState_, bounds_.minX + padding, bounds_.maxX - padding),
+     *     randomRange(randomState_, bounds_.minY + padding, bounds_.maxY - padding),
+     *     randomRange(randomState_, bounds_.minZ + padding, bounds_.maxZ - padding)
+     * };
+     *
+     * const float speed = randomRange(randomState_, MIN_SPEED, MAX_SPEED);
+     * Vec3 direction{
+     *     randomRange(randomState_, -1.0F, 1.0F),
+     *     randomRange(randomState_, -1.0F, 1.0F),
+     *     randomRange(randomState_, -1.0F, 1.0F)
+     * };
+     */
     cat.position = {
-        randomRange(randomState_, bounds_.minX + padding, bounds_.maxX - padding),
-        randomRange(randomState_, bounds_.minY + padding, bounds_.maxY - padding),
-        randomRange(randomState_, bounds_.minZ + padding, bounds_.maxZ - padding)
+        randomRange(cat.randomState, bounds_.minX + padding, bounds_.maxX - padding),
+        randomRange(cat.randomState, bounds_.minY + padding, bounds_.maxY - padding),
+        randomRange(cat.randomState, bounds_.minZ + padding, bounds_.maxZ - padding)
     };
 
-    const float speed = randomRange(randomState_, MIN_SPEED, MAX_SPEED);
+    const float speed = randomRange(cat.randomState, MIN_SPEED, MAX_SPEED);
     Vec3 direction{
-        randomRange(randomState_, -1.0F, 1.0F),
-        randomRange(randomState_, -1.0F, 1.0F),
-        randomRange(randomState_, -1.0F, 1.0F)
+        randomRange(cat.randomState, -1.0F, 1.0F),
+        randomRange(cat.randomState, -1.0F, 1.0F),
+        randomRange(cat.randomState, -1.0F, 1.0F)
     };
     const float length = std::sqrt(std::max(lengthSquared(direction), 0.001F));
     cat.velocity = {direction.x / length * speed, direction.y / length * speed, direction.z / length * speed};

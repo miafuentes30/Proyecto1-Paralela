@@ -23,3 +23,21 @@ add_executable(fruitcat-chaos
 
 target_include_directories(fruitcat-chaos PRIVATE include third_party)
 target_link_libraries(fruitcat-chaos PRIVATE glfw OpenGL::GL)
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(simulation-seed-test
+        tests/SimulationSeedTest.cpp
+        src/simulation/Simulation.cpp
+    )
+    target_include_directories(simulation-seed-test PRIVATE include)
+    if(MSVC)
+        target_compile_options(simulation-seed-test PRIVATE /W4)
+    else()
+        target_compile_options(simulation-seed-test PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    if(MINGW)
+        target_link_options(simulation-seed-test PRIVATE -static)
+    endif()
+    add_test(NAME simulation-seed-test COMMAND simulation-seed-test)
+endif()
