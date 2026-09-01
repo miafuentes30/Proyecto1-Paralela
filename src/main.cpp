@@ -4,9 +4,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
-#include <cstdlib>
 #include <string>
 
+#include "core/ProgramOptions.hpp"
 #include "render/Arena.hpp"
 #include "render/Backdrop.hpp"
 #include "render/Camera.hpp"
@@ -25,8 +25,6 @@ constexpr float ARENA_HALF_WIDTH = 8.0F;
 constexpr float ARENA_HALF_HEIGHT = 7.0F;
 constexpr float ARENA_HALF_DEPTH = 8.0F;
 constexpr float FLOOR_HEIGHT = -ARENA_HALF_HEIGHT + 0.02F;
-constexpr int DEFAULT_CAT_COUNT = 40;
-constexpr int MAX_CAT_COUNT = 2000;
 
 void configureLighting() {
     const float ambientLight[4] = {0.24F, 0.32F, 0.42F, 1.0F};
@@ -71,33 +69,41 @@ void errorCallback(int error, const char* description) {
     std::fprintf(stderr, "GLFW error %d: %s\n", error, description);
 }
 
-struct Options {
-    int catCount = DEFAULT_CAT_COUNT;
-    bool fullscreen = false;
-};
-
-bool parseArguments(int argc, char** argv, Options& options) {
-    bool sawCatCount = false;
-    for (int index = 1; index < argc; ++index) {
-        const std::string argument = argv[index];
-        if (argument == "-f" || argument == "--fullscreen") {
-            options.fullscreen = true;
-            continue;
-        }
-        if (sawCatCount) {
-            return false;
-        }
-
-        char* end = nullptr;
-        const long parsed = std::strtol(argument.c_str(), &end, 10);
-        if (argument.empty() || *end != '\0' || parsed < 1 || parsed > MAX_CAT_COUNT) {
-            return false;
-        }
-        options.catCount = static_cast<int>(parsed);
-        sawCatCount = true;
-    }
-    return true;
-}
+/*
+ * VERSION ANTERIOR:
+ * El analizador estaba acoplado a main.cpp y solo aceptaba N y pantalla
+ * completa. Se reemplazo por ProgramOptions para validar tambien modo, hilos
+ * y semilla sin inicializar GLFW, lo que permite probarlo de forma aislada.
+ *
+ * Codigo anterior:
+ * struct Options {
+ *     int catCount = DEFAULT_CAT_COUNT;
+ *     bool fullscreen = false;
+ * };
+ *
+ * bool parseArguments(int argc, char** argv, Options& options) {
+ *     bool sawCatCount = false;
+ *     for (int index = 1; index < argc; ++index) {
+ *         const std::string argument = argv[index];
+ *         if (argument == "-f" || argument == "--fullscreen") {
+ *             options.fullscreen = true;
+ *             continue;
+ *         }
+ *         if (sawCatCount) {
+ *             return false;
+ *         }
+ *
+ *         char* end = nullptr;
+ *         const long parsed = std::strtol(argument.c_str(), &end, 10);
+ *         if (argument.empty() || *end != '\0' || parsed < 1 || parsed > MAX_CAT_COUNT) {
+ *             return false;
+ *         }
+ *         options.catCount = static_cast<int>(parsed);
+ *         sawCatCount = true;
+ *     }
+ *     return true;
+ * }
+ */
 
 struct WindowState {
     bool fullscreen = false;
@@ -150,15 +156,26 @@ void updateWindowTitle(GLFWwindow* window, int totalCats, int activeCats, float 
 } // namespace
 
 int main(int argc, char** argv) {
-    Options options;
-    if (!parseArguments(argc, argv, options)) {
-        std::fprintf(stderr,
-                     "Uso: fruitcat-chaos [N] [-f|--fullscreen]\n"
-                     "N debe estar entre 1 y %d (default %d).\n"
-                     "F o F11 alternan pantalla completa mientras corre.\n",
-                     MAX_CAT_COUNT, DEFAULT_CAT_COUNT);
+    const fruitcat::OptionsParseResult parseResult = fruitcat::parseProgramOptions(argc, argv);
+    const std::string usage = fruitcat::programUsage(argc > 0 ? argv[0] : "fruitcat-chaos");
+    if (parseResult.status == fruitcat::OptionsParseStatus::Help) {
+        std::fputs(usage.c_str(), stdout);
+        return 0;
+    }
+    if (parseResult.status == fruitcat::OptionsParseStatus::Error) {
+        std::fprintf(stderr, "Error: %s\n%s", parseResult.errorMessage.c_str(), usage.c_str());
         return 1;
     }
+    const fruitcat::ProgramOptions& options = parseResult.options;
+
+    if (options.mode == fruitcat::ExecutionMode::Parallel) {
+        std::puts("El modo parallel fue solicitado correctamente, pero se habilitara en la siguiente fase al configurar OpenMP.");
+        return 0;
+    }
+
+    std::printf("Configuracion: modo=%s, N=%d, hilos=%d, semilla=%u\n",
+                fruitcat::executionModeName(options.mode), options.catCount,
+                options.threadCount, static_cast<unsigned int>(options.seed));
 
     glfwSetErrorCallback(errorCallback);
 
@@ -202,7 +219,7 @@ int main(int argc, char** argv) {
         FLOOR_HEIGHT, ARENA_HALF_HEIGHT,
         -ARENA_HALF_DEPTH, ARENA_HALF_DEPTH
     };
-    fruitcat::Simulation simulation(options.catCount, bounds);
+    fruitcat::Simulation simulation(options.catCount, bounds, options.seed);
     auto previousFrameTime = std::chrono::steady_clock::now();
     float fpsAccumulator = 0.0F;
     int framesSinceTitleUpdate = 0;

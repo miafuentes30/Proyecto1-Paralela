@@ -11,6 +11,7 @@ find_package(OpenGL REQUIRED)
 
 add_executable(fruitcat-chaos
     src/main.cpp
+    src/core/ProgramOptions.cpp
     src/render/Arena.cpp
     src/render/Backdrop.cpp
     src/render/Camera.cpp
@@ -40,4 +41,19 @@ if(BUILD_TESTING)
         target_link_options(simulation-seed-test PRIVATE -static)
     endif()
     add_test(NAME simulation-seed-test COMMAND simulation-seed-test)
+
+    add_executable(program-options-test
+        tests/ProgramOptionsTest.cpp
+        src/core/ProgramOptions.cpp
+    )
+    target_include_directories(program-options-test PRIVATE include)
+    if(MSVC)
+        target_compile_options(program-options-test PRIVATE /W4)
+    else()
+        target_compile_options(program-options-test PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    if(MINGW)
+        target_link_options(program-options-test PRIVATE -static)
+    endif()
+    add_test(NAME program-options-test COMMAND program-options-test)
 endif()
