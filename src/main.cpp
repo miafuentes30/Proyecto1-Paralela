@@ -138,9 +138,12 @@ void toggleFullscreen(GLFWwindow* window) {
     state->fullscreen = true;
 }
 
-void drawHud(int framebufferWidth, int framebufferHeight, int totalCats, int activeCats, float fps) {
-    char line[96];
-    std::snprintf(line, sizeof(line), "SEQUENTIAL | N %d | ACTIVE %d | FPS %.1f", totalCats, activeCats, fps);
+void drawHud(int framebufferWidth, int framebufferHeight, fruitcat::ExecutionMode mode,
+             int threadCount, int totalCats, int activeCats, float fps) {
+    char line[128];
+    const char* modeLabel = mode == fruitcat::ExecutionMode::Parallel ? "PARALLEL" : "SEQUENTIAL";
+    std::snprintf(line, sizeof(line), "%s | THREADS %d | N %d | ACTIVE %d | FPS %.1f",
+                  modeLabel, threadCount, totalCats, activeCats, fps);
     // Scale with the framebuffer so the HUD reads the same on a high-DPI or
     // fractionally scaled display, but keep it a whole number of pixels so the
     // bitmap font stays aligned to the pixel grid and looks crisp.
@@ -148,9 +151,13 @@ void drawHud(int framebufferWidth, int framebufferHeight, int totalCats, int act
     fruitcat::drawScreenText(framebufferWidth, framebufferHeight, pixelSize * 4.0F, pixelSize * 4.0F, pixelSize, line);
 }
 
-void updateWindowTitle(GLFWwindow* window, int totalCats, int activeCats, float fps) {
-    const std::string title = "FruitCat Chaos 3D | Sequential | N: " + std::to_string(totalCats)
-        + " | Active: " + std::to_string(activeCats) + " | FPS: " + std::to_string(static_cast<int>(fps + 0.5F));
+void updateWindowTitle(GLFWwindow* window, fruitcat::ExecutionMode mode, int threadCount,
+                       int totalCats, int activeCats, float fps) {
+    const std::string modeLabel = mode == fruitcat::ExecutionMode::Parallel ? "PARALLEL" : "SEQUENTIAL";
+    const std::string title = "FruitCat Chaos 3D | " + modeLabel
+        + " | Threads: " + std::to_string(threadCount) + " | N: " + std::to_string(totalCats)
+        + " | Active: " + std::to_string(activeCats)
+        + " | FPS: " + std::to_string(static_cast<int>(fps + 0.5F));
     glfwSetWindowTitle(window, title.c_str());
 }
 
@@ -201,8 +208,17 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        std::puts("La simulacion paralela se habilitara en la siguiente fase.");
-        return 0;
+        /*
+         * VERSION ANTERIOR:
+         * Esta terminacion temporal impedia abrir GLFW despues de validar los
+         * hilos, porque la simulacion paralela aun no estaba implementada.
+         *
+         * Codigo anterior:
+         * std::puts("La simulacion paralela se habilitara en la siguiente fase.");
+         * return 0;
+         */
+        std::puts("Movimiento y rebotes habilitados en paralelo.");
+        std::puts("Las colisiones entre gatos permanecen secuenciales.");
     }
 
     std::printf("Configuracion: modo=%s, N=%d, hilos=%d, semilla=%u\n",
@@ -273,7 +289,11 @@ int main(int argc, char** argv) {
         camera.update(elapsedTime.count());
         camera.apply(framebufferWidth, framebufferHeight);
         updatePointLightInWorld();
-        simulation.updateSequential(elapsedTime.count());
+        if (options.mode == fruitcat::ExecutionMode::Parallel) {
+            simulation.updateParallel(elapsedTime.count(), options.threadCount);
+        } else {
+            simulation.updateSequential(elapsedTime.count());
+        }
 
         glClearColor(0.0F, 0.0F, 0.0F, 1.0F);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -284,12 +304,14 @@ int main(int argc, char** argv) {
         fruitcat::drawTerrain(ARENA_HALF_WIDTH, ARENA_HALF_DEPTH, FLOOR_HEIGHT);
         fruitcat::drawFruitCats(simulation.cats(), FLOOR_HEIGHT);
         fruitcat::drawGlassArena(ARENA_HALF_WIDTH, ARENA_HALF_HEIGHT, ARENA_HALF_DEPTH);
-        drawHud(framebufferWidth, framebufferHeight, simulation.totalCats(), simulation.activeCats(), measuredFps);
+        drawHud(framebufferWidth, framebufferHeight, options.mode, options.threadCount,
+                simulation.totalCats(), simulation.activeCats(), measuredFps);
         glfwSwapBuffers(window);
 
         if (fpsAccumulator >= 0.5F) {
             measuredFps = static_cast<float>(framesSinceTitleUpdate) / fpsAccumulator;
-            updateWindowTitle(window, simulation.totalCats(), simulation.activeCats(), measuredFps);
+            updateWindowTitle(window, options.mode, options.threadCount,
+                              simulation.totalCats(), simulation.activeCats(), measuredFps);
             fpsAccumulator = 0.0F;
             framesSinceTitleUpdate = 0;
         }

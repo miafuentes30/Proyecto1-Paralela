@@ -96,12 +96,32 @@ void Simulation::updateSequential(float deltaTime) {
     resolveCatCollisions();
 }
 
+/*
+ * VERSION ANTERIOR:
+ * Esta preparacion delegaba todo el trabajo en la ruta secuencial y todavia
+ * no utilizaba los hilos solicitados.
+ *
+ * Codigo anterior:
+ * void Simulation::updateParallel(float deltaTime, int threadCount) {
+ *     (void)threadCount;
+ *     updateSequential(deltaTime);
+ * }
+ */
 void Simulation::updateParallel(float deltaTime, int threadCount) {
-    // Delegacion temporal: conserva un punto de comparacion identico. Los
-    // hilos se usaran en la siguiente parte; esta ruta aun no mejora el
-    // rendimiento y no debe medirse como una implementacion paralela.
-    (void)threadCount;
-    updateSequential(deltaTime);
+    const float safeDeltaTime = std::min(deltaTime, 0.05F);
+    const int catCount = static_cast<int>(cats_.size());
+
+    // Cada iteracion modifica un gato distinto; bounds_ es de solo lectura,
+    // cada gato conserva su propio randomState y cats_ no cambia de tamano.
+    // schedule(static) reparte bloques porque el trabajo por gato es similar.
+    #pragma omp parallel for schedule(static) num_threads(threadCount)
+    for (int index = 0; index < catCount; ++index) {
+        updateCat(cats_[static_cast<std::size_t>(index)], safeDeltaTime);
+    }
+
+    // La barrera implicita del parallel for completa todos los movimientos
+    // antes de resolver, todavia en orden secuencial, las colisiones.
+    resolveCatCollisions();
 }
 
 const std::vector<FruitCat>& Simulation::cats() const {

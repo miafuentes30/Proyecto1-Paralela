@@ -34,6 +34,7 @@ if(BUILD_TESTING)
         src/simulation/Simulation.cpp
     )
     target_include_directories(simulation-seed-test PRIVATE include)
+    target_link_libraries(simulation-seed-test PRIVATE OpenMP::OpenMP_CXX)
     if(MSVC)
         target_compile_options(simulation-seed-test PRIVATE /W4)
     else()
@@ -41,6 +42,15 @@ if(BUILD_TESTING)
     endif()
     if(MINGW)
         target_link_options(simulation-seed-test PRIVATE -static)
+        get_filename_component(MINGW_COMPILER_DIRECTORY "${CMAKE_CXX_COMPILER}" DIRECTORY)
+        add_custom_command(TARGET simulation-seed-test POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${MINGW_COMPILER_DIRECTORY}/libgomp-1.dll"
+                "$<TARGET_FILE_DIR:simulation-seed-test>"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${MINGW_COMPILER_DIRECTORY}/libwinpthread-1.dll"
+                "$<TARGET_FILE_DIR:simulation-seed-test>"
+        )
     endif()
     add_test(NAME simulation-seed-test COMMAND simulation-seed-test)
 
