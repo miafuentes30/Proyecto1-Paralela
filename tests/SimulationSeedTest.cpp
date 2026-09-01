@@ -75,9 +75,9 @@ int main() {
     }
 
     for (int frame = 0; frame < 600; ++frame) {
-        first.update(1.0F / 60.0F);
-        second.update(1.0F / 60.0F);
-        different.update(1.0F / 60.0F);
+        first.updateSequential(1.0F / 60.0F);
+        second.updateSequential(1.0F / 60.0F);
+        different.updateSequential(1.0F / 60.0F);
     }
 
     if (!sameSimulation(first, second)) {
@@ -90,6 +90,20 @@ int main() {
         return fail("la actualizacion produjo un valor no finito");
     }
 
-    std::cout << "OK: reproducibilidad, semillas distintas y valores finitos\n";
+    fruitcat::Simulation sequentialRoute(catCount, bounds, seed);
+    fruitcat::Simulation preparatoryParallelRoute(catCount, bounds, seed);
+    for (int frame = 0; frame < 600; ++frame) {
+        sequentialRoute.updateSequential(1.0F / 60.0F);
+        preparatoryParallelRoute.updateParallel(1.0F / 60.0F, 4);
+    }
+
+    if (!sameSimulation(sequentialRoute, preparatoryParallelRoute)) {
+        return fail("la ruta paralela preparatoria no coincide con la ruta secuencial");
+    }
+    if (!allFinite(sequentialRoute) || !allFinite(preparatoryParallelRoute)) {
+        return fail("la comparacion temporal entre rutas produjo un valor no finito");
+    }
+
+    std::cout << "OK: reproducibilidad y equivalencia preparatoria durante 600 frames\n";
     return 0;
 }

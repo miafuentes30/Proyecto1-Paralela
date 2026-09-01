@@ -73,12 +73,35 @@ Simulation::Simulation(int catCount, ArenaBounds bounds, std::uint32_t seed)
     }
 }
 
-void Simulation::update(float deltaTime) {
+/*
+ * VERSION ANTERIOR:
+ * Esta funcion reunia toda la actualizacion bajo un unico nombre.
+ * Se separo para conservar una ruta secuencial y preparar una ruta paralela
+ * que puedan compararse bajo las mismas condiciones.
+ *
+ * Codigo anterior:
+ * void Simulation::update(float deltaTime) {
+ *     const float safeDeltaTime = std::min(deltaTime, 0.05F);
+ *     for (FruitCat& cat : cats_) {
+ *         updateCat(cat, safeDeltaTime);
+ *     }
+ *     resolveCatCollisions();
+ * }
+ */
+void Simulation::updateSequential(float deltaTime) {
     const float safeDeltaTime = std::min(deltaTime, 0.05F);
     for (FruitCat& cat : cats_) {
         updateCat(cat, safeDeltaTime);
     }
     resolveCatCollisions();
+}
+
+void Simulation::updateParallel(float deltaTime, int threadCount) {
+    // Delegacion temporal: conserva un punto de comparacion identico. Los
+    // hilos se usaran en la siguiente parte; esta ruta aun no mejora el
+    // rendimiento y no debe medirse como una implementacion paralela.
+    (void)threadCount;
+    updateSequential(deltaTime);
 }
 
 const std::vector<FruitCat>& Simulation::cats() const {

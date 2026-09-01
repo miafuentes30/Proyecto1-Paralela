@@ -273,7 +273,7 @@ int main(int argc, char** argv) {
         camera.update(elapsedTime.count());
         camera.apply(framebufferWidth, framebufferHeight);
         updatePointLightInWorld();
-        simulation.update(elapsedTime.count());
+        simulation.updateSequential(elapsedTime.count());
 
         glClearColor(0.0F, 0.0F, 0.0F, 1.0F);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

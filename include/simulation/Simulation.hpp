@@ -20,7 +20,8 @@ class Simulation {
 public:
     Simulation(int catCount, ArenaBounds bounds, std::uint32_t seed = 20260828U);
 
-    void update(float deltaTime);
+    void updateSequential(float deltaTime);
+    void updateParallel(float deltaTime, int threadCount);
 
     [[nodiscard]] const std::vector<FruitCat>& cats() const;
     [[nodiscard]] int activeCats() const;
