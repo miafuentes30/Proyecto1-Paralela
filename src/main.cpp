@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <string>
 
+#include "core/OpenMpRuntime.hpp"
 #include "core/ProgramOptions.hpp"
 #include "render/Arena.hpp"
 #include "render/Backdrop.hpp"
@@ -168,8 +169,39 @@ int main(int argc, char** argv) {
     }
     const fruitcat::ProgramOptions& options = parseResult.options;
 
+    /*
+     * VERSION ANTERIOR:
+     * Este bloqueo reconocia el modo parallel, pero terminaba antes de
+     * comprobar la disponibilidad y la cantidad real de hilos de OpenMP.
+     *
+     * Codigo anterior:
+     * if (options.mode == fruitcat::ExecutionMode::Parallel) {
+     *     std::puts("El modo parallel fue solicitado correctamente, pero se habilitara en la siguiente fase al configurar OpenMP.");
+     *     return 0;
+     * }
+     */
     if (options.mode == fruitcat::ExecutionMode::Parallel) {
-        std::puts("El modo parallel fue solicitado correctamente, pero se habilitara en la siguiente fase al configurar OpenMP.");
+        const fruitcat::OpenMpRuntimeInfo runtime =
+            fruitcat::configureAndInspectOpenMp(options.threadCount);
+
+        std::puts("OpenMP configurado correctamente.");
+        std::printf("Procesadores disponibles: %d\n", runtime.processorCount);
+        std::printf("Hilos maximos configurados: %d\n", runtime.maximumThreads);
+        std::printf("Hilos solicitados: %d\n", runtime.requestedThreads);
+        std::printf("Hilos activos: %d\n", runtime.activeThreads);
+
+        if (runtime.requestedThreads > runtime.processorCount) {
+            std::fprintf(stderr,
+                         "Advertencia: se solicitaron mas hilos que procesadores disponibles; puede ocurrir sobresuscripcion.\n");
+        }
+        if (runtime.activeThreads != runtime.requestedThreads) {
+            std::fprintf(stderr,
+                         "Error: OpenMP creo %d hilos activos, pero se solicitaron %d.\n",
+                         runtime.activeThreads, runtime.requestedThreads);
+            return 1;
+        }
+
+        std::puts("La simulacion paralela se habilitara en la siguiente fase.");
         return 0;
     }
 
