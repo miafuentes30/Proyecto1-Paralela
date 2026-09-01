@@ -111,6 +111,33 @@ int main() {
         std::cout << "OK: equivalencia exacta con " << threadCount << " hilo(s) durante 600 frames\n";
     }
 
+    constexpr int collisionCatCount = 500;
+    constexpr int collisionFrames = 120;
+    fruitcat::Simulation collisionReference(collisionCatCount, bounds, seed);
+    for (int frame = 0; frame < collisionFrames; ++frame) {
+        collisionReference.updateSequential(1.0F / 60.0F);
+    }
+
+    if (!allFinite(collisionReference)) {
+        return fail("la referencia secuencial con 500 gatos produjo un valor no finito");
+    }
+
+    for (const int threadCount : threadCounts) {
+        fruitcat::Simulation parallelCollisions(collisionCatCount, bounds, seed);
+        for (int frame = 0; frame < collisionFrames; ++frame) {
+            parallelCollisions.updateParallel(1.0F / 60.0F, threadCount);
+        }
+
+        if (!sameSimulation(collisionReference, parallelCollisions)) {
+            return fail("la deteccion paralela de colisiones no coincide con la referencia secuencial");
+        }
+        if (!allFinite(parallelCollisions)) {
+            return fail("la deteccion paralela con 500 gatos produjo un valor no finito");
+        }
+        std::cout << "OK: 500 gatos equivalentes con " << threadCount
+                  << " hilo(s) durante 120 frames\n";
+    }
+
     std::cout << "OK: reproducibilidad y equivalencia paralela comprobadas\n";
     return 0;
 }

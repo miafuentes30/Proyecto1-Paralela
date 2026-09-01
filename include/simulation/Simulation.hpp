@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -28,10 +29,18 @@ public:
     [[nodiscard]] int totalCats() const;
 
 private:
+    struct CollisionEvent {
+        std::size_t firstIndex;
+        std::size_t secondIndex;
+    };
+
     void spawn(FruitCat& cat);
     void updateCat(FruitCat& cat, float deltaTime);
     void resolveWallCollision(FruitCat& cat);
-    void resolveCatCollisions();
+    [[nodiscard]] std::vector<CollisionEvent> detectCollisionsSequential() const;
+    [[nodiscard]] std::vector<CollisionEvent> detectCollisionsParallel(int threadCount) const;
+    void resolveCollisionEvents(std::vector<CollisionEvent> events);
+    void resolveCollisionPair(FruitCat& first, FruitCat& second);
     void applyImpact(FruitCat& cat);
 
     ArenaBounds bounds_;

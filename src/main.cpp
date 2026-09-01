@@ -218,7 +218,8 @@ int main(int argc, char** argv) {
          * return 0;
          */
         std::puts("Movimiento y rebotes habilitados en paralelo.");
-        std::puts("Las colisiones entre gatos permanecen secuenciales.");
+        std::puts("Deteccion de colisiones habilitada en paralelo.");
+        std::puts("Resolucion de colisiones conservada en orden secuencial.");
     }
 
     std::printf("Configuracion: modo=%s, N=%d, hilos=%d, semilla=%u\n",

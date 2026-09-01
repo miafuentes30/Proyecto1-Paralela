@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <omp.h>
 
 namespace fruitcat {
 namespace {
@@ -93,7 +94,7 @@ void Simulation::updateSequential(float deltaTime) {
     for (FruitCat& cat : cats_) {
         updateCat(cat, safeDeltaTime);
     }
-    resolveCatCollisions();
+    resolveCollisionEvents(detectCollisionsSequential());
 }
 
 /*
@@ -120,8 +121,8 @@ void Simulation::updateParallel(float deltaTime, int threadCount) {
     }
 
     // La barrera implicita del parallel for completa todos los movimientos
-    // antes de resolver, todavia en orden secuencial, las colisiones.
-    resolveCatCollisions();
+    // antes de iniciar la deteccion de colisiones de solo lectura.
+    resolveCollisionEvents(detectCollisionsParallel(threadCount));
 }
 
 const std::vector<FruitCat>& Simulation::cats() const {
@@ -245,54 +246,165 @@ void Simulation::resolveWallCollision(FruitCat& cat) {
     }
 }
 
-void Simulation::resolveCatCollisions() {
+std::vector<Simulation::CollisionEvent> Simulation::detectCollisionsSequential() const {
+    std::vector<CollisionEvent> events;
+
     for (std::size_t first = 0; first < cats_.size(); ++first) {
-        FruitCat& a = cats_[first];
+        const FruitCat& a = cats_[first];
         if (a.state != CatState::Alive) {
             continue;
         }
 
         for (std::size_t second = first + 1; second < cats_.size(); ++second) {
-            FruitCat& b = cats_[second];
+            const FruitCat& b = cats_[second];
             if (b.state != CatState::Alive) {
                 continue;
             }
 
-            Vec3 difference{b.position.x - a.position.x, b.position.y - a.position.y, b.position.z - a.position.z};
+            const Vec3 difference{
+                b.position.x - a.position.x,
+                b.position.y - a.position.y,
+                b.position.z - a.position.z
+            };
             const float distanceSquared = lengthSquared(difference);
             const float minimumDistance = a.radius + b.radius;
-            if (distanceSquared > minimumDistance * minimumDistance) {
+            if (distanceSquared <= minimumDistance * minimumDistance) {
+                events.push_back({first, second});
+            }
+        }
+    }
+
+    return events;
+}
+
+std::vector<Simulation::CollisionEvent> Simulation::detectCollisionsParallel(int threadCount) const {
+    const int catCount = static_cast<int>(cats_.size());
+    std::vector<std::vector<CollisionEvent>> eventsByThread(static_cast<std::size_t>(threadCount));
+
+    #pragma omp parallel num_threads(threadCount)
+    {
+        const int threadId = omp_get_thread_num();
+        std::vector<CollisionEvent>& localEvents =
+            eventsByThread[static_cast<std::size_t>(threadId)];
+
+        #pragma omp for schedule(static, 1)
+        for (int first = 0; first < catCount; ++first) {
+            const FruitCat& a = cats_[static_cast<std::size_t>(first)];
+            if (a.state != CatState::Alive) {
                 continue;
             }
 
-            const float distance = std::sqrt(std::max(distanceSquared, 0.0001F));
-            const Vec3 normal{difference.x / distance, difference.y / distance, difference.z / distance};
-            const float overlap = minimumDistance - distance;
-            a.position.x -= normal.x * overlap * 0.5F;
-            a.position.y -= normal.y * overlap * 0.5F;
-            a.position.z -= normal.z * overlap * 0.5F;
-            b.position.x += normal.x * overlap * 0.5F;
-            b.position.y += normal.y * overlap * 0.5F;
-            b.position.z += normal.z * overlap * 0.5F;
+            for (int second = first + 1; second < catCount; ++second) {
+                const FruitCat& b = cats_[static_cast<std::size_t>(second)];
+                if (b.state != CatState::Alive) {
+                    continue;
+                }
 
-            const Vec3 relativeVelocity{b.velocity.x - a.velocity.x, b.velocity.y - a.velocity.y, b.velocity.z - a.velocity.z};
-            const float velocityAlongNormal = relativeVelocity.x * normal.x + relativeVelocity.y * normal.y + relativeVelocity.z * normal.z;
-            if (velocityAlongNormal < 0.0F) {
-                a.velocity.x += normal.x * velocityAlongNormal;
-                a.velocity.y += normal.y * velocityAlongNormal;
-                a.velocity.z += normal.z * velocityAlongNormal;
-                b.velocity.x -= normal.x * velocityAlongNormal;
-                b.velocity.y -= normal.y * velocityAlongNormal;
-                b.velocity.z -= normal.z * velocityAlongNormal;
-            }
-
-            if (a.hitCooldown <= 0.0F) {
-                applyImpact(a);
-            }
-            if (b.hitCooldown <= 0.0F) {
-                applyImpact(b);
+                const Vec3 difference{
+                    b.position.x - a.position.x,
+                    b.position.y - a.position.y,
+                    b.position.z - a.position.z
+                };
+                const float distanceSquared = lengthSquared(difference);
+                const float minimumDistance = a.radius + b.radius;
+                if (distanceSquared <= minimumDistance * minimumDistance) {
+                    localEvents.push_back({
+                        static_cast<std::size_t>(first),
+                        static_cast<std::size_t>(second)
+                    });
+                }
             }
         }
+    }
+
+    std::size_t totalEvents = 0;
+    for (const std::vector<CollisionEvent>& localEvents : eventsByThread) {
+        totalEvents += localEvents.size();
+    }
+
+    std::vector<CollisionEvent> events;
+    events.reserve(totalEvents);
+    for (const std::vector<CollisionEvent>& localEvents : eventsByThread) {
+        events.insert(events.end(), localEvents.begin(), localEvents.end());
+    }
+    return events;
+}
+
+/*
+ * VERSION ANTERIOR:
+ * La deteccion y la resolucion se realizaban inmediatamente dentro del mismo
+ * ciclo anidado. Esto no podia paralelizarse porque diferentes pares podian
+ * modificar el mismo gato al mismo tiempo.
+ *
+ * Estructura anterior importante:
+ * for (...) {
+ *     for (...) {
+ *         if (existeColision) {
+ *             // Modificar inmediatamente posicion, velocidad e impactos.
+ *         }
+ *     }
+ * }
+ */
+void Simulation::resolveCollisionEvents(std::vector<CollisionEvent> events) {
+    std::sort(events.begin(), events.end(), [](const CollisionEvent& left, const CollisionEvent& right) {
+        if (left.firstIndex != right.firstIndex) {
+            return left.firstIndex < right.firstIndex;
+        }
+        return left.secondIndex < right.secondIndex;
+    });
+
+    for (const CollisionEvent& event : events) {
+        FruitCat& first = cats_[event.firstIndex];
+        FruitCat& second = cats_[event.secondIndex];
+        if (first.state != CatState::Alive || second.state != CatState::Alive) {
+            continue;
+        }
+
+        const Vec3 difference{
+            second.position.x - first.position.x,
+            second.position.y - first.position.y,
+            second.position.z - first.position.z
+        };
+        const float minimumDistance = first.radius + second.radius;
+        if (lengthSquared(difference) > minimumDistance * minimumDistance) {
+            continue;
+        }
+
+        resolveCollisionPair(first, second);
+    }
+}
+
+void Simulation::resolveCollisionPair(FruitCat& a, FruitCat& b) {
+    Vec3 difference{b.position.x - a.position.x, b.position.y - a.position.y, b.position.z - a.position.z};
+    const float distanceSquared = lengthSquared(difference);
+    const float minimumDistance = a.radius + b.radius;
+
+    const float distance = std::sqrt(std::max(distanceSquared, 0.0001F));
+    const Vec3 normal{difference.x / distance, difference.y / distance, difference.z / distance};
+    const float overlap = minimumDistance - distance;
+    a.position.x -= normal.x * overlap * 0.5F;
+    a.position.y -= normal.y * overlap * 0.5F;
+    a.position.z -= normal.z * overlap * 0.5F;
+    b.position.x += normal.x * overlap * 0.5F;
+    b.position.y += normal.y * overlap * 0.5F;
+    b.position.z += normal.z * overlap * 0.5F;
+
+    const Vec3 relativeVelocity{b.velocity.x - a.velocity.x, b.velocity.y - a.velocity.y, b.velocity.z - a.velocity.z};
+    const float velocityAlongNormal = relativeVelocity.x * normal.x + relativeVelocity.y * normal.y + relativeVelocity.z * normal.z;
+    if (velocityAlongNormal < 0.0F) {
+        a.velocity.x += normal.x * velocityAlongNormal;
+        a.velocity.y += normal.y * velocityAlongNormal;
+        a.velocity.z += normal.z * velocityAlongNormal;
+        b.velocity.x -= normal.x * velocityAlongNormal;
+        b.velocity.y -= normal.y * velocityAlongNormal;
+        b.velocity.z -= normal.z * velocityAlongNormal;
+    }
+
+    if (a.hitCooldown <= 0.0F) {
+        applyImpact(a);
+    }
+    if (b.hitCooldown <= 0.0F) {
+        applyImpact(b);
     }
 }
 
