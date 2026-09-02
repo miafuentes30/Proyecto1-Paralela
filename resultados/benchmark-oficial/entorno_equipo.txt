@@ -1,0 +1,13 @@
+Entorno de las mediciones oficiales
+Fecha de recopilacion: 2026-09-02
+
+CPU: 11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40 GHz
+Nucleos fisicos: 4
+Procesadores logicos: 8
+RAM visible: 8108840 KB (aproximadamente 7.73 GiB; 8 GB instalados)
+Windows: Microsoft Windows 10 Home Single Language, version 10.0.19045, compilacion 19045
+Plan de energia: Equilibrado
+CMake: 4.4.2
+CTest: 4.4.2
+G++: 16.2.0 (MSYS2, Rev3)
+Maximo de hilos OpenMP: 8
