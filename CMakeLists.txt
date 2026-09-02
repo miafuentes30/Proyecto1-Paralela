@@ -12,6 +12,7 @@ find_package(OpenMP REQUIRED)
 
 add_executable(fruitcat-chaos
     src/main.cpp
+    src/benchmark/Benchmark.cpp
     src/core/OpenMpRuntime.cpp
     src/core/ProgramOptions.cpp
     src/render/Arena.cpp
@@ -93,4 +94,12 @@ if(BUILD_TESTING)
         )
     endif()
     add_test(NAME openmp-runtime-test COMMAND openmp-runtime-test)
+
+    add_test(NAME benchmark-mode-test
+        COMMAND ${CMAKE_COMMAND}
+            "-DEXECUTABLE=$<TARGET_FILE:fruitcat-chaos>"
+            "-DOUTPUT_CSV=${CMAKE_CURRENT_BINARY_DIR}/benchmark-test.csv"
+            "-DTOOLCHAIN_BIN=${MINGW_COMPILER_DIRECTORY}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/BenchmarkModeTest.cmake"
+    )
 endif()

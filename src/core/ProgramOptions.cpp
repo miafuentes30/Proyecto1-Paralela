@@ -13,6 +13,7 @@ constexpr int MIN_CAT_COUNT = 1;
 constexpr int MAX_CAT_COUNT = 2000;
 constexpr int MIN_THREAD_COUNT = 1;
 constexpr int MAX_THREAD_COUNT = 256;
+constexpr int MIN_BENCHMARK_REPETITIONS = 10;
 
 template <typename Integer>
 bool parseInteger(const std::string& text, Integer& value) {
@@ -73,7 +74,9 @@ OptionsParseResult parseProgramOptions(int argc, const char* const argv[]) {
         return result;
     }
 
-    if (positional.size() > 4) {
+    const bool benchmarkRequested = positional.size() >= 2 && positional[1] == "benchmark";
+    const std::size_t maximumPositional = benchmarkRequested ? 7U : 4U;
+    if (positional.size() > maximumPositional) {
         return errorResult("Se proporcionaron argumentos sobrantes.");
     }
 
@@ -90,14 +93,24 @@ OptionsParseResult parseProgramOptions(int argc, const char* const argv[]) {
             result.options.mode = ExecutionMode::Sequential;
         } else if (positional[1] == "parallel") {
             result.options.mode = ExecutionMode::Parallel;
+        } else if (positional[1] == "benchmark") {
+            result.options.mode = ExecutionMode::Benchmark;
         } else {
-            return errorResult("Modo desconocido: " + positional[1] + ". Use sequential o parallel.");
+            return errorResult("Modo desconocido: " + positional[1] + ". Use sequential, parallel o benchmark.");
         }
     }
 
+    if (result.options.mode == ExecutionMode::Benchmark && positional.size() != 7U) {
+        return errorResult("El modo benchmark requiere N, hilos, semilla, frames, repeticiones y archivo CSV.");
+    }
+    if (result.options.mode == ExecutionMode::Benchmark && sawFullscreen) {
+        return errorResult("El modo benchmark no admite la opcion de pantalla completa.");
+    }
+
     const bool threadCountProvided = positional.size() >= 3;
-    if (result.options.mode == ExecutionMode::Parallel && !threadCountProvided) {
-        return errorResult("El modo parallel requiere una cantidad de hilos explicita entre 1 y 256.");
+    if ((result.options.mode == ExecutionMode::Parallel || result.options.mode == ExecutionMode::Benchmark)
+        && !threadCountProvided) {
+        return errorResult("Los modos parallel y benchmark requieren una cantidad de hilos explicita entre 1 y 256.");
     }
 
     if (threadCountProvided) {
@@ -120,6 +133,25 @@ OptionsParseResult parseProgramOptions(int argc, const char* const argv[]) {
         result.options.seed = seed;
     }
 
+    if (result.options.mode == ExecutionMode::Benchmark) {
+        int frames = 0;
+        if (!parseInteger(positional[4], frames) || frames < 1) {
+            return errorResult("Los frames del benchmark deben ser un entero positivo.");
+        }
+        result.options.benchmarkFrames = frames;
+
+        int repetitions = 0;
+        if (!parseInteger(positional[5], repetitions) || repetitions < MIN_BENCHMARK_REPETITIONS) {
+            return errorResult("El benchmark requiere al menos 10 repeticiones.");
+        }
+        result.options.benchmarkRepetitions = repetitions;
+
+        if (positional[6].empty()) {
+            return errorResult("La ruta del archivo CSV no puede estar vacia.");
+        }
+        result.options.benchmarkCsvPath = positional[6];
+    }
+
     return result;
 }
 
@@ -128,8 +160,9 @@ std::string programUsage(const char* executableName) {
         ? executableName
         : "fruitcat-chaos";
     return "Uso: " + name + " [N] [modo] [hilos] [semilla] [-f|--fullscreen]\n"
+        "       " + name + " N benchmark hilos semilla frames repeticiones archivo.csv\n"
         "  N: entero entre 1 y 2000 (predeterminado: 40).\n"
-        "  modo: sequential o parallel (predeterminado: sequential).\n"
+        "  modo: sequential, parallel o benchmark (predeterminado: sequential).\n"
         "  hilos: sequential requiere 1; parallel requiere 1 a 256 (predeterminado: 1).\n"
         "  semilla: entero sin signo entre 0 y 4294967295 (predeterminado: 20260828).\n"
         "  -f, --fullscreen: iniciar en pantalla completa.\n"
@@ -137,11 +170,15 @@ std::string programUsage(const char* executableName) {
         "Ejemplos:\n"
         "  fruitcat-chaos 2000 sequential 1 20260828\n"
         "  fruitcat-chaos 2000 parallel 8 20260828\n"
+        "  fruitcat-chaos 100 benchmark 4 20260828 20 10 benchmark.csv\n"
         "  fruitcat-chaos 100 sequential 1 42 --fullscreen\n";
 }
 
 const char* executionModeName(ExecutionMode mode) {
-    return mode == ExecutionMode::Sequential ? "sequential" : "parallel";
+    if (mode == ExecutionMode::Sequential) {
+        return "sequential";
+    }
+    return mode == ExecutionMode::Parallel ? "parallel" : "benchmark";
 }
 
 } // namespace fruitcat

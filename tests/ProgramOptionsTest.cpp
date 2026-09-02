@@ -52,6 +52,14 @@ int main() {
     expect(parallel.options.mode == fruitcat::ExecutionMode::Parallel && parallel.options.threadCount == 8,
            "valores del comando parallel");
 
+    const auto benchmark = parse({"fruitcat-chaos", "100", "benchmark", "4", "20260828",
+                                  "20", "10", "benchmark.csv"});
+    expect(benchmark.status == fruitcat::OptionsParseStatus::Success, "comando benchmark completo");
+    expect(benchmark.options.mode == fruitcat::ExecutionMode::Benchmark
+           && benchmark.options.threadCount == 4 && benchmark.options.benchmarkFrames == 20
+           && benchmark.options.benchmarkRepetitions == 10
+           && benchmark.options.benchmarkCsvPath == "benchmark.csv", "valores del comando benchmark");
+
     const auto zeroSeed = parse({"fruitcat-chaos", "40", "sequential", "1", "0"});
     expect(zeroSeed.status == fruitcat::OptionsParseStatus::Success && zeroSeed.options.seed == 0U,
            "semilla minima");
@@ -75,6 +83,16 @@ int main() {
     expectError({"fruitcat-chaos", "100", "sequential", "1", "-1"}, "semilla negativa");
     expectError({"fruitcat-chaos", "100", "sequential", "1", "4294967296"}, "semilla fuera de uint32");
     expectError({"fruitcat-chaos", "100", "sequential", "1", "42", "extra"}, "argumentos sobrantes");
+    expectError({"fruitcat-chaos", "100", "benchmark", "4", "20260828", "20", "9", "out.csv"},
+                "benchmark con menos de diez repeticiones");
+    expectError({"fruitcat-chaos", "100", "benchmark", "4", "20260828", "0", "10", "out.csv"},
+                "benchmark sin frames positivos");
+    expectError({"fruitcat-chaos", "100", "benchmark", "4", "20260828", "20", "10"},
+                "benchmark sin archivo CSV");
+    expectError({"fruitcat-chaos", "100", "benchmark", "4", "20260828", "20", "10", "out.csv", "extra"},
+                "benchmark con argumentos sobrantes");
+    expectError({"fruitcat-chaos", "100", "benchmark", "4", "20260828", "20", "10", "out.csv", "--fullscreen"},
+                "benchmark con pantalla completa");
     expectError({"fruitcat-chaos", "--unknown"}, "opcion desconocida");
     expectError({"fruitcat-chaos", "-f", "--fullscreen"}, "opcion repetida");
 

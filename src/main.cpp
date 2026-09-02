@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <string>
 
+#include "benchmark/Benchmark.hpp"
 #include "core/OpenMpRuntime.hpp"
 #include "core/ProgramOptions.hpp"
 #include "render/Arena.hpp"
@@ -175,6 +176,10 @@ int main(int argc, char** argv) {
         return 1;
     }
     const fruitcat::ProgramOptions& options = parseResult.options;
+
+    if (options.mode == fruitcat::ExecutionMode::Benchmark) {
+        return fruitcat::runBenchmark(options);
+    }
 
     /*
      * VERSION ANTERIOR:
